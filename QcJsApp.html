@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quality Control</title>
+</head>
+<body>
+  <video id="camera" width="640" height="480" autoplay></video>
+  <button onclick="captureImage()">Capture Image</button>
+  <p id="result"></p>
+
+  <script async src="https://docs.opencv.org/master/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+  <script>
+    let isOpencvReady = false;
+    let cameraStream = null;
+
+    function onOpenCvReady() {
+      isOpencvReady = true;
+      startCamera();
+    }
+
+    async function startCamera() {
+      try {
+        cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const video = document.getElementById('camera');
+        video.srcObject = cameraStream;
+      } catch (error) {
+        console.error('Error accessing camera:', error);
+      }
+    }
+
+    function stopCamera() {
+      if (cameraStream) {
+        const tracks = cameraStream.getTracks();
+        tracks.forEach(track => track.stop());
+      }
+    }
+
+    function captureImage() {
+      if (!isOpencvReady) {
+        console.error("OpenCV.js not ready.");
+        return;
+      }
+
+      const video = document.getElementById('camera');
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const context = canvas.getContext('2d');
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      const image = cv.matFromImageData(imageData);
+
+      const dimensions = getDimensions(image);
+      const isGoodProduct = checkQuality(dimensions);
+
+      document.getElementById('result').innerText = isGoodProduct ? "Good product!" : "Not meeting quality standards.";
+
+      image.delete();
+    }
+
+    function getDimensions(image) {
+      const grayImage = new cv.Mat();
+      cv.cvtColor(image, grayImage, cv.COLOR_RGBA2GRAY);
+
+      const binaryImage = new cv.Mat();
+      cv.threshold(grayImage, binaryImage, 127, 255, cv.THRESH_BINARY);
+
+      const dimensions = findDimensions(binaryImage);
+
+      grayImage.delete();
+      binaryImage.delete();
+
+      return dimensions;
+    }
+
+    function findDimensions(binaryImage) {
+      const contours = new cv.MatVector();
+      const hierarchy = new cv.Mat();
+
+      cv.findContours(binaryImage, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+      const largestContour = findLargestContour(contours);
+      const boundingRect = cv.boundingRect(largestContour);
+
+      contours.delete();
+      hierarchy.delete();
+      largestContour.delete();
+
+      return [boundingRect.width, boundingRect.height];
+    }
+
+    function findLargestContour(contours) {
+      let maxArea = -1;
+      let maxContour = null;
+
+      for (let i = 0; i < contours.size(); ++i) {
+        const area = cv.contourArea(contours.get(i));
+        if (area > maxArea) {
+          maxArea = area;
+          maxContour = contours.get(i);
+        }
+      }
+
+      return maxContour;
+    }
+
+    function checkQuality(dimensions) {
+      const minWidth = 50, maxWidth = 100;
+      const minHeight = 20, maxHeight = 50;
+
+      return (
+        dimensions[0] >= minWidth && dimensions[0] <= maxWidth &&
+        dimensions[1] >= minHeight && dimensions[1] <= maxHeight
+      );
+    }
+
+    // Stop the camera when the window is closed or navigated away
+    window.addEventListener('beforeunload', stopCamera);
+  </script>
+</body>
+</html>
